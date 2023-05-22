@@ -13,10 +13,12 @@ jobs:
           python-version: '3.9'
           cache: 'pip' 
       - name: Install dhapi
-        run: |        
+        run: |
+          pip install --upgrade pip
           pip install dhapi
+          dhapi -v
       - name: Buy Lotto645
-        run: |        
+        run: |
           echo $USERNAME > ~/.dhapi_profile # secret에 저장된 내용을 프로필 파일에 저장 
           echo $PASSWORD >> ~/.dhapi_profile
           dhapi buy_lotto645 -q
