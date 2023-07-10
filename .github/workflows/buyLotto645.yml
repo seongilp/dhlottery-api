@@ -1,0 +1,31 @@
+name: Buy weekly Lotto645
+on:
+  schedule:
+    - cron: '45 5 * * 0' # 한국시간 기준 매주 일요일 오전 8시 55분
+  workflow_dispatch:      # 테스트를 위해 workflow가 dispatch 되는 경우 실행이 가능하도록 추가
+jobs:
+  BuyLotto645:
+    runs-on: ubuntu-latest
+    steps:  
+      - uses: actions/checkout@v3    
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          cache: 'pip' 
+      - name: Install dhapi
+        run: |
+          pip install --upgrade pip
+          pip install dhapi
+          pip install --upgrade dhapi
+          dhapi -v
+      - name: Buy Lotto645
+        run: |
+          mkdir ~/.dhapi
+          echo "[default]" > ~/./dhapi/credentials
+          echo "username =" $USERNAME > ~/./dhapi/credentials # secret에 저장된 내용을 프로필 파일에 저장 
+          echo "password =" $PASSWORD >> ~/./dhapi/credentials
+          dhapi -h
+          dhapi buy_lotto645 -q
+        env:
+            USERNAME: ${{ secrets.USER_ID }} # secret에 저장된 내용을 불러옴
+            PASSWORD: ${{ secrets.USER_PW }}
