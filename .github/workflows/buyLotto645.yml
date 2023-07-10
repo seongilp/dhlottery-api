@@ -20,7 +20,7 @@ jobs:
           dhapi -v
       - name: Buy Lotto645
         run: |
-          mkdir ~/.dhapi
+          mkdir -p dhapi
           echo "[default]" > ~/./dhapi/credentials
           echo "username =" $USERNAME > ~/./dhapi/credentials # secret에 저장된 내용을 프로필 파일에 저장 
           echo "password =" $PASSWORD >> ~/./dhapi/credentials
