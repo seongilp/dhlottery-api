@@ -1,4 +1,4 @@
-name: Buy weekly Lotto645
+name: BuyLotto645 weekly
 on:
   schedule:
     - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
