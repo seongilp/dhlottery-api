@@ -14,8 +14,7 @@ jobs:
           cache: 'pip' 
       - name: Install dhapi
         run: |
-          pip install --upgrade pip
-          pip install dhapi
+          pip install dhapi packaging
       - name: Buy Lotto645
         run: |
           mkdir -p ~/.dhapi
