@@ -26,3 +26,6 @@ jobs:
         env:
             USERNAME: ${{ secrets.USER_ID }} # secret에 저장된 내용을 불러옴
             PASSWORD: ${{ secrets.USER_PW }}
+branding:
+  icon: anchor
+  color: yellow
