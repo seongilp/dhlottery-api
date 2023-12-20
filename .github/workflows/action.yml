@@ -1,7 +1,7 @@
 name: BuyLotto645 weekly
 on:
-  schedule:
-    - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
+  #schedule:
+  #  - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
   workflow_dispatch:      # 테스트를 위해 workflow가 dispatch 되는 경우 실행이 가능하도록 추가
 jobs:
   BuyLotto645:
