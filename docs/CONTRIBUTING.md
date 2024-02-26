@@ -6,12 +6,6 @@
 
 동행복권 사이트는 `JSESSIONID`를 이용하여 유저를 인증합니다. 본 API에서는 `requests`를 이용해 로그인한 후 `JSESSIONID`를 메모리에 저장해 복권 구매에 활용합니다.
 
-### 모듈 구조
-
-main.py -> router -> 요청에 따른 특정 controller -> client (동행복권 사이트 호출)
-
-router, client, controller 가 모두 domain_object 에 의존하는 형태입니다.
-
 ### 트러블슈팅 가이드
 
 #### main.py 가 실행이 안될 때
@@ -33,19 +27,11 @@ make lintfmt
 
 ### 배포
 
-pypi를 통해 배포합니다. ([pypi repository](https://pypi.org/project/dhapi/))
+이 작업은 메인테이너가 진행합니다.
 
-(build, setuptools, tween 필요)
-
-`setup.py`에서 'version'을 적절하게 bump 후 publish 합니다.
-
-그런데 pypi 저장소 토큰이 저한테 있어서... 지금은 저만 배포할 수 있습니다.
-
-```sh
-make publish
-```
-
-배포할 때마다, `setup.py` 와 `arg_parser.py` 의 버전 정보를 수동으로 갱신해주고 있습니다.
+1. main 브랜치에서 [VERSION](./VERSION) 을 수정한 후 master 브랜치로 PR 생성합니다.
+2. CI가 통과되고 머지되면 [tag-and-publish 워크플로우](https://github.com/roeniss/dhlottery-api/actions/workflows/tag-and-publish.yml) 를 직접 수행합니다. 이렇게 하면 tag 생성이 진행되고 바로 이어서 Pypi 에 새 버전 배포가 진행됩니다.
+3. 생성된 tag로 GitHub Release 를 생성합니다.
 
 ### 참고자료
 

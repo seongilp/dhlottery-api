@@ -8,8 +8,13 @@ disable=
   W0511, # no TODO
   R1705, # no else
   R0903, # too few public methods
+  W0718, # broad exception caught
+  W0707, # raise-missing-from
+  C2401, # non-ascii-name
+
 
 [FORMAT]
 max-line-length=180
-good-names=i,j,k,f
+good-names=i,j,k,f,e
 disable=logging-fstring-interpolation
+max-args=7
