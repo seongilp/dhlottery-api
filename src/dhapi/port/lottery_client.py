@@ -124,10 +124,18 @@ class LotteryClient:
             logger.debug(f"response: {response_text}")
 
             response = json.loads(response_text)
+            if not self._is_purchase_success(response):
+                raise RuntimeError(f"❗ 로또6/45 구매에 실패했습니다. (사유: {response['result']['resultMsg']})")
+
             slots = self._format_lotto_numbers(response["result"]["arrGameChoiceNum"])
             self._lottery_endpoint.print_result_of_buy_lotto645(slots)
+        except RuntimeError as e:
+            raise e
         except Exception:
-            raise RuntimeError("❗ 로또6/45 구매에 실패했습니다.")
+            raise RuntimeError("❗ 로또6/45 구매에 실패했습니다. (사유: 알 수 없는 오류)")
+
+    def _is_purchase_success(self, response):
+        return response["result"]["resultCode"] == "100"
 
     def _make_buy_loyyo645_param(self, tickets: List[Lotto645Ticket]):
         params = []
@@ -176,15 +184,26 @@ class LotteryClient:
             resp = requests.get(self._cash_balance, headers=self._headers, timeout=10)
             soup = BeautifulSoup(resp.text, "html5lib")
 
+            has_bank_account = soup.select_one(".tbl_total_account_number_top tbody tr td").contents != []
             elem = soup.select("div.box.money")
             elem = elem[0]
 
-            총예치금 = self._parse_digit(elem.select("p.total_new > strong")[0].contents[0])
-            구매가능금액 = self._parse_digit(elem.select("td.ta_right")[3].contents[0])
-            예약구매금액 = self._parse_digit(elem.select("td.ta_right")[4].contents[0])
-            출금신청중금액 = self._parse_digit(elem.select("td.ta_right")[5].contents[0])
-            구매불가능금액 = self._parse_digit(elem.select("td.ta_right")[6].contents[0])  # (예약구매금액 + 출금신청중금액)
-            이번달누적구매금액 = self._parse_digit(elem.select("td.ta_right")[7].contents[0])
+            if has_bank_account is True:
+                # 간편충전 계좌번호가 있는 경우
+                총예치금 = self._parse_digit(elem.select("p.total_new > strong")[0].contents[0])
+                구매가능금액 = self._parse_digit(elem.select("td.ta_right")[3].contents[0])
+                예약구매금액 = self._parse_digit(elem.select("td.ta_right")[4].contents[0])
+                출금신청중금액 = self._parse_digit(elem.select("td.ta_right")[5].contents[0])
+                구매불가능금액 = self._parse_digit(elem.select("td.ta_right")[6].contents[0])  # (예약구매금액 + 출금신청중금액)
+                이번달누적구매금액 = self._parse_digit(elem.select("td.ta_right")[7].contents[0])
+            else:
+                # 간편충전 계좌번호가 없는 경우
+                총예치금 = self._parse_digit(elem.select("p.total_new > strong")[0].contents[0])
+                구매가능금액 = self._parse_digit(elem.select("td.ta_right")[1].contents[0])
+                예약구매금액 = self._parse_digit(elem.select("td.ta_right")[2].contents[0])
+                출금신청중금액 = self._parse_digit(elem.select("td.ta_right")[3].contents[0])
+                구매불가능금액 = self._parse_digit(elem.select("td.ta_right")[4].contents[0])  # (예약구매금액 + 출금신청중금액)
+                이번달누적구매금액 = self._parse_digit(elem.select("td.ta_right")[5].contents[0])
 
             self._lottery_endpoint.print_result_of_show_balance(총예치금, 구매가능금액, 예약구매금액, 출금신청중금액, 구매불가능금액, 이번달누적구매금액)
 
