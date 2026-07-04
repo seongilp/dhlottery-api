@@ -13,14 +13,21 @@ clean:
 .PHONY : clean
 
 
+check:
+	black src --check --diff
+	pylint src --fail-under=10
+
+.PHONY : check
+
+
 lintfmt:
-	black src/**
+	black src
 	pylint src
 
 .PHONY : lintfmt
 
 
 test:
-	TODO
+	PYTHONPATH=src pytest -q
 
 .PHONY : test

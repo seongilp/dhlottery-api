@@ -1,6 +1,8 @@
 from typing import Annotated, Optional, List
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from dhapi.config.logger import set_logger
 from dhapi.domain.deposit import Deposit
@@ -47,27 +49,59 @@ def assign_virtual_account(
     user = CredentialsProvider(profile).get_user()
     deposit = Deposit(amount)
 
-    client = build_lottery_client(user, None)
+    client = build_lottery_client(user)
     client.assign_virtual_account(deposit)
 
 
-@app.command(
-    help="""
+@app.command(help="""
 예치금 현황을 조회합니다.
-"""
-)
+""")
 def show_balance(
     profile: Annotated[str, typer.Option("-p", "--profile", help="프로필을 지정합니다", metavar="")] = "default",
     _debug: Annotated[bool, typer.Option("-d", "--debug", help="debug 로그를 활성화합니다.", callback=logger_callback)] = False,
 ):
     user = CredentialsProvider(profile).get_user()
 
-    client = build_lottery_client(user, None)
+    client = build_lottery_client(user)
     client.show_balance()
 
 
+@app.command(help="""
+구매 내역을 조회합니다.
+
+기본적으로 최근 14일간의 내역을 조회하며, --start-date 및 --end-date 옵션을 통해 조회 기간을 지정할 수 있습니다.
+""")
+def show_buy_list(
+    profile: Annotated[str, typer.Option("-p", "--profile", help="프로필을 지정합니다", metavar="")] = "default",
+    output_format: Annotated[str, typer.Option("-f", "--format", help="출력 형식을 지정합니다 (table, json).")] = "table",
+    start_date: Annotated[Optional[str], typer.Option("-s", "--start-date", help="조회 시작 날짜 (YYYYMMDD)")] = None,
+    end_date: Annotated[Optional[str], typer.Option("-e", "--end-date", help="조회 종료 날짜 (YYYYMMDD)")] = None,
+    _debug: Annotated[bool, typer.Option("-d", "--debug", help="debug 로그를 활성화합니다.", callback=logger_callback)] = False,
+):
+    user = CredentialsProvider(profile).get_user()
+    client = build_lottery_client(user)
+    client.show_buy_list(output_format, start_date, end_date)
+
+
 @app.command(
-    help="""
+    help="""등록된 프로필 목록을 출력합니다.""",
+)
+def show_profiles():
+    try:
+        profiles = CredentialsProvider.list_profiles()
+    except FileNotFoundError as e:
+        print(f"❌ {e.args[0]}")
+        raise typer.Exit(code=1)
+
+    console = Console()
+    table = Table("profiles")
+    for name in profiles:
+        table.add_row(name)
+
+    console.print(table)
+
+
+@app.command(help="""
 로또6/45 복권을 구매합니다.
 
 매주 최대 다섯 장까지 구매할 수 있습니다 (5 tickets).
@@ -85,21 +119,18 @@ dhapi buy-lotto645 '1,2,3' : 반자동모드 1장 (고정번호: 1,2,3)
 dhapi buy-lotto645 '1,2,3,4,5,6' '7,8,9' : 수동모드 1장 (고정번호: 1,2,3,4,5,6), 반자동모드 1장 (고정번호: 7,8,9)
 
 dhapi buy-lotto645 '' '' '' '1' : 자동모드 3장, 반자동모드 1장 (고정번호: 1)
-"""
-)
+""")
 def buy_lotto645(
     tickets: Annotated[List[str], typer.Argument(help="구매할 번호를 입력합니다. 생략 시 자동모드로 5장 구매합니다.", metavar="tickets", show_default=False)] = None,
-    email: Annotated[str, typer.Option("-e", "--email", metavar="", help="구매 결과를 표준 출력이 아니라 지정한 이메일로 전송합니다.")] = None,
     always_yes: Annotated[bool, typer.Option("-y", "--yes", help="구매 전 확인 절차를 스킵합니다.")] = False,
     profile: Annotated[str, typer.Option("-p", "--profile", help="프로필을 지정합니다", metavar="")] = "default",
     _debug: Annotated[bool, typer.Option("-d", "--debug", help="debug 로그를 활성화합니다.", callback=logger_callback)] = False,
 ):
     cred = CredentialsProvider(profile)
     user = cred.get_user()
-    form = cred.get_email_form(email) if email else None
     tickets = Lotto645Ticket.create_tickets(tickets) if tickets else Lotto645Ticket.create_auto_tickets(count=5)
 
-    client = build_lottery_client(user, form)
+    client = build_lottery_client(user)
     confirmer = build_lotto645_buy_confirmer()
 
     ok = confirmer.confirm(tickets, always_yes)
@@ -109,11 +140,9 @@ def buy_lotto645(
     client.buy_lotto645(tickets)
 
 
-@app.command(
-    help="""
+@app.command(help="""
 dhapi 버전을 출력합니다.
-"""
-)
+""")
 def version():
     version_callback(True)
 
