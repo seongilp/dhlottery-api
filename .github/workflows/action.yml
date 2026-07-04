@@ -6,21 +6,9 @@ on:
 jobs:
   BuyLotto645:
     runs-on: ubuntu-latest
-    steps:  
-      - uses: actions/checkout@v3    
-      - uses: actions/setup-python@v4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./ # 루트의 action.yml (composite action) 사용
         with:
-          python-version: '3.9'
-          cache: 'pip' 
-      - name: Install dhapi
-        run: |
-          pip install dhapi packaging
-      - name: Buy Lotto645
-        run: |
-          mkdir -p ~/.dhapi
-          # secret에 저장된 내용을 프로필 파일에 저장 (TOML 형식이므로 값을 따옴표로 감싸야 함)
-          printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
-          dhapi buy-lotto645 -y
-        env:
-            USERNAME: ${{ secrets.USER_ID }} # secret에 저장된 내용을 불러옴
-            PASSWORD: ${{ secrets.USER_PW }}
+          username: ${{ secrets.USER_ID }}
+          password: ${{ secrets.USER_PW }}

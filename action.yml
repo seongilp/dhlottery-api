@@ -1,30 +1,46 @@
-name: BuyLotto645 weekly
-description: 'Buy a lotto every week'
-on:
-  schedule:
-    - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
-  workflow_dispatch:      # 테스트를 위해 workflow가 dispatch 되는 경우 실행이 가능하도록 추가
-jobs:
-  BuyLotto645:
-    runs-on: ubuntu-latest
-    steps:  
-      - uses: actions/checkout@v3    
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-          cache: 'pip' 
-      - name: Install dhapi
-        run: |
-          pip install dhapi packaging
-      - name: Buy Lotto645
-        run: |
-          mkdir -p ~/.dhapi
-          # secret에 저장된 내용을 프로필 파일에 저장 (TOML 형식이므로 값을 따옴표로 감싸야 함)
-          printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
-          dhapi buy-lotto645 -y
-        env:
-            USERNAME: ${{ secrets.USER_ID }} # secret에 저장된 내용을 불러옴
-            PASSWORD: ${{ secrets.USER_PW }}
+name: BuyLotto645
+description: 'Buy Lotto645 tickets with dhapi (비공식 동행복권 API)'
+# 사용 예시 (본인 레포의 .github/workflows/buy-lotto645.yml):
+#
+#   name: BuyLotto645 weekly
+#   on:
+#     schedule:
+#       - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
+#     workflow_dispatch:
+#   jobs:
+#     BuyLotto645:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: roeniss/dhlottery-api@main
+#           with:
+#             username: ${{ secrets.USER_ID }}
+#             password: ${{ secrets.USER_PW }}
+inputs:
+  username:
+    description: '동행복권 아이디'
+    required: true
+  password:
+    description: '동행복권 비밀번호'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install dhapi
+      shell: bash
+      run: pip install dhapi
+    - name: Buy Lotto645
+      shell: bash
+      env:
+        USERNAME: ${{ inputs.username }}
+        PASSWORD: ${{ inputs.password }}
+      run: |
+        mkdir -p ~/.dhapi
+        # credentials는 TOML 형식이므로 값을 따옴표로 감싸야 함
+        printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
+        dhapi buy-lotto645 -y
 branding:
   icon: anchor
   color: yellow
