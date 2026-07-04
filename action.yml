@@ -15,6 +15,8 @@ description: 'Buy Lotto645 tickets with dhapi (비공식 동행복권 API)'
 #           with:
 #             username: ${{ secrets.USER_ID }}
 #             password: ${{ secrets.USER_PW }}
+#             telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }} # 선택: 구매 결과 텔레그램 알림
+#             telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}     # 선택
 inputs:
   username:
     description: '동행복권 아이디'
@@ -22,6 +24,14 @@ inputs:
   password:
     description: '동행복권 비밀번호'
     required: true
+  telegram_bot_token:
+    description: '텔레그램 봇 토큰 (구매 결과 알림용, 선택)'
+    required: false
+    default: ''
+  telegram_chat_id:
+    description: '텔레그램 chat_id (구매 결과 알림용, 선택)'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -36,11 +46,36 @@ runs:
       env:
         USERNAME: ${{ inputs.username }}
         PASSWORD: ${{ inputs.password }}
+        TG_TOKEN: ${{ inputs.telegram_bot_token }}
+        TG_CHAT_ID: ${{ inputs.telegram_chat_id }}
       run: |
         mkdir -p ~/.dhapi
         # credentials는 TOML 형식이므로 값을 따옴표로 감싸야 함
         printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
-        dhapi buy-lotto645 -y
+
+        set +e
+        output=$(dhapi buy-lotto645 -y 2>&1)
+        code=$?
+        set -e
+        echo "$output"
+
+        # 텔레그램 알림 (토큰/chat_id가 설정된 경우에만)
+        if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
+          if [ "$code" -eq 0 ]; then
+            header="✅ 로또6/45 구매 완료"
+          else
+            header="❌ 로또6/45 구매 실패"
+          fi
+          # HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단
+          escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
+          message="${header}"$'\n'"<pre>${escaped}</pre>"
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${message}" || echo "::warning::텔레그램 알림 전송에 실패했습니다."
+        fi
+
+        exit $code
 branding:
   icon: anchor
   color: yellow
