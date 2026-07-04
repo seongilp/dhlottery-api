@@ -19,10 +19,9 @@ jobs:
       - name: Buy Lotto645
         run: |
           mkdir -p ~/.dhapi
-          echo "[default]" > ~/.dhapi/credentials
-          echo "username =" $USERNAME >> ~/.dhapi/credentials # secret에 저장된 내용을 프로필 파일에 저장 
-          echo "password =" $PASSWORD >> ~/.dhapi/credentials
-          dhapi buy_lotto645 -q
+          # secret에 저장된 내용을 프로필 파일에 저장 (TOML 형식이므로 값을 따옴표로 감싸야 함)
+          printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
+          dhapi buy-lotto645 -y
         env:
             USERNAME: ${{ secrets.USER_ID }} # secret에 저장된 내용을 불러옴
             PASSWORD: ${{ secrets.USER_PW }}
