@@ -12,5 +12,6 @@ jobs:
         with:
           username: ${{ secrets.USER_ID }}
           password: ${{ secrets.USER_PW }}
+          buy_pension720: 'true'
           telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}

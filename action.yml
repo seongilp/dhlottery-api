@@ -1,22 +1,23 @@
 name: BuyLotto645
-description: 'Buy Lotto645 tickets with dhapi (비공식 동행복권 API)'
+description: 'Buy Lotto645 (and optionally Pension720+) tickets with dhapi (비공식 동행복권 API)'
 # 사용 예시 (본인 레포의 .github/workflows/buy-lotto645.yml):
 #
 #   name: BuyLotto645 weekly
 #   on:
 #     schedule:
-#       - cron: 0 0 * * 0 # every Sunday on 09:00 AM (KST)
+#       - cron: 23 0 * * 0 # every Sunday on 09:23 AM (KST)
 #     workflow_dispatch:
 #   jobs:
 #     BuyLotto645:
 #       runs-on: ubuntu-latest
 #       steps:
-#         - uses: roeniss/dhlottery-api@main
+#         - uses: seongilp/dhlottery-api@main
 #           with:
 #             username: ${{ secrets.USER_ID }}
 #             password: ${{ secrets.USER_PW }}
-#             telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }} # 선택: 구매 결과 텔레그램 알림
-#             telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}     # 선택
+#             buy_pension720: 'true'                                    # 선택: 연금복권720+도 함께 구매
+#             telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}     # 선택: 구매 결과 텔레그램 알림
+#             telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}         # 선택
 inputs:
   username:
     description: '동행복권 아이디'
@@ -24,6 +25,10 @@ inputs:
   password:
     description: '동행복권 비밀번호'
     required: true
+  buy_pension720:
+    description: '연금복권720+ 자동 1세트(1~5조 동일번호 5장, 5,000원)도 함께 구매 (true/false)'
+    required: false
+    default: 'false'
   telegram_bot_token:
     description: '텔레그램 봇 토큰 (구매 결과 알림용, 선택)'
     required: false
@@ -38,14 +43,18 @@ runs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    - name: Install dhapi
+    - name: Install dhapi (from action source)
       shell: bash
-      run: pip install dhapi
-    - name: Buy Lotto645
+      env:
+        # 액션 소스에는 git 태그 정보가 없어 setuptools-scm 버전 계산이 불가능하므로 고정
+        SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.0'
+      run: pip install "${{ github.action_path }}"
+    - name: Buy lottery tickets
       shell: bash
       env:
         USERNAME: ${{ inputs.username }}
         PASSWORD: ${{ inputs.password }}
+        BUY_PENSION720: ${{ inputs.buy_pension720 }}
         TG_TOKEN: ${{ inputs.telegram_bot_token }}
         TG_CHAT_ID: ${{ inputs.telegram_chat_id }}
       run: |
@@ -54,18 +63,29 @@ runs:
         printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
 
         set +e
-        output=$(dhapi buy-lotto645 -y 2>&1)
-        code=$?
+        lotto_output=$(dhapi buy-lotto645 -y 2>&1)
+        lotto_code=$?
         set -e
-        echo "$output"
+        echo "$lotto_output"
+        printf '%s' "$lotto_output" > /tmp/dhapi_lotto.txt
+
+        pension_code=0
+        pension_output=""
+        if [ "$BUY_PENSION720" = "true" ]; then
+          set +e
+          pension_output=$(dhapi buy-pension720 -y 2>&1)
+          pension_code=$?
+          set -e
+          echo "$pension_output"
+          printf '%s' "$pension_output" > /tmp/dhapi_pension.txt
+        fi
 
         # rich 테이블은 모바일 텔레그램에서 깨져 보이므로 구매 결과를 간결한 텍스트로 재구성
-        printf '%s' "$output" > /tmp/dhapi_out.txt
         cat > /tmp/fmt_buy.py <<'PYEOF'
         import re
         import sys
 
-        text = open("/tmp/dhapi_out.txt", encoding="utf-8").read()
+        text = open(sys.argv[1], encoding="utf-8").read()
         idx = text.find("복권을 구매했습니다")
         if idx < 0:
             sys.exit(1)
@@ -79,32 +99,48 @@ runs:
         print("\n".join(rows))
         PYEOF
 
+        cat > /tmp/fmt_pension.py <<'PYEOF'
+        import re
+        import sys
+
+        text = open(sys.argv[1], encoding="utf-8").read()
+        m = re.search(r"연금복권720\+ (\d+)회 복권을 구매했습니다", text)
+        n = re.search(r"│\s*1조\s*│\s*(\d+)", text)
+        if not m or not n:
+            sys.exit(1)
+        print(f"{m.group(1)}회 · 1~5조 {n.group(1)}")
+        PYEOF
+
         # 텔레그램 알림 (토큰/chat_id가 설정된 경우에만)
         if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
-          pretty=""
-          if [ "$code" -eq 0 ]; then
-            pretty=$(python3 /tmp/fmt_buy.py 2>/dev/null) || pretty=""
-          fi
-          if [ "$code" -eq 0 ] && [ -n "$pretty" ]; then
-            message="✅ 로또6/45 구매 완료"$'\n\n'"${pretty}"
+          if [ "$lotto_code" -eq 0 ] && pretty=$(python3 /tmp/fmt_buy.py /tmp/dhapi_lotto.txt 2>/dev/null); then
+            message="✅ 로또6/45 구매 완료"$'\n'"${pretty}"
           else
             # 구매 실패 또는 파싱 실패 시 원본 출력을 <pre>로 전송
-            # (HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단)
-            escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
-            if [ "$code" -eq 0 ]; then
-              header="✅ 로또6/45 구매 완료"
-            else
-              header="❌ 로또6/45 구매 실패"
-            fi
+            escaped=$(printf '%s' "$lotto_output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 1700)
+            if [ "$lotto_code" -eq 0 ]; then header="✅ 로또6/45 구매 완료"; else header="❌ 로또6/45 구매 실패"; fi
             message="${header}"$'\n'"<pre>${escaped}</pre>"
           fi
+
+          if [ "$BUY_PENSION720" = "true" ]; then
+            if [ "$pension_code" -eq 0 ] && pretty_p=$(python3 /tmp/fmt_pension.py /tmp/dhapi_pension.txt 2>/dev/null); then
+              message="${message}"$'\n\n'"✅ 연금복권720+ 구매 완료"$'\n'"${pretty_p}"
+            else
+              escaped_p=$(printf '%s' "$pension_output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 1700)
+              if [ "$pension_code" -eq 0 ]; then header_p="✅ 연금복권720+ 구매 완료"; else header_p="❌ 연금복권720+ 구매 실패"; fi
+              message="${message}"$'\n\n'"${header_p}"$'\n'"<pre>${escaped_p}</pre>"
+            fi
+          fi
+
           curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT_ID}" \
             --data-urlencode "parse_mode=HTML" \
             --data-urlencode "text=${message}" || echo "::warning::텔레그램 알림 전송에 실패했습니다."
         fi
 
-        exit $code
+        if [ "$lotto_code" -ne 0 ] || [ "$pension_code" -ne 0 ]; then
+          exit 1
+        fi
 branding:
   icon: anchor
   color: yellow

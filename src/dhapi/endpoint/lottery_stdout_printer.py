@@ -49,6 +49,15 @@ class LotteryStdoutPrinter:
             table.add_row(slot["slot"], slot["mode"], *slot["numbers"])
         console.print(table)
 
+    def print_result_of_buy_pension720(self, round_number: int, sel_no: str):
+        console = Console()
+
+        console.print(f"✅ 연금복권720+ {round_number}회 복권을 구매했습니다. (1~5조 동일번호 5장)")
+        table = Table("조", "번호")
+        for group in range(1, 6):
+            table.add_row(f"{group}조", sel_no)
+        console.print(table)
+
     def print_result_of_show_buy_list(self, data: List[Dict], output_format: str, start_date: str, end_date: str):
         console = Console()
 

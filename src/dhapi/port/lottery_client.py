@@ -1,8 +1,10 @@
 import datetime
 import json
 import logging
+import re
 import time
 from typing import List, Dict
+from urllib.parse import quote
 
 import pytz
 import requests
@@ -12,7 +14,9 @@ from Crypto.Cipher import PKCS1_v1_5
 
 from dhapi.domain.deposit import Deposit
 from dhapi.domain.lotto645_ticket import Lotto645Ticket, Lotto645Mode
+from dhapi.domain.pension720_round import current_pension720_round
 from dhapi.domain.user import User
+from dhapi.port.el_crypto import decrypt_el_payload, encrypt_el_payload
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,12 @@ class LotteryClient:
     _assign_virtual_account_1 = "https://www.dhlottery.co.kr/mypage/kbankInit.do"
     _assign_virtual_account_2 = "https://www.dhlottery.co.kr/mypage/kbankProcess.do"
     _lotto_buy_list_url = "https://www.dhlottery.co.kr/mypage/selectMyLotteryledger.do"
+    _pension720_game_page = "https://el.dhlottery.co.kr/game/pension720/game.jsp"
+    _pension720_auto_no_url = "https://el.dhlottery.co.kr/makeAutoNo.do"
+    _pension720_order_no_url = "https://el.dhlottery.co.kr/makeOrderNo.do"
+    _pension720_conn_pro_url = "https://el.dhlottery.co.kr/connPro.do"
+    _PENSION720_TICKET_COUNT = 5  # 1~5조 동일번호 1세트
+    _PENSION720_TICKET_PRICE = 1000
     _DETAIL_REQUEST_DELAY = 0.5
 
     def __init__(self, user_profile: User, lottery_endpoint):
@@ -237,6 +247,103 @@ class LotteryClient:
             }
             slots.append(slot)
         return slots
+
+    def buy_pension720(self):
+        """연금복권720+ 자동번호 1세트(1~5조 동일번호, 5장) 구매
+
+        el.dhlottery.co.kr은 요청/응답 본문을 AES로 암호화하며(q 파라미터), 세션 쿠키(DHJSESSIONID) 값이 암호화 키로 사용된다.
+        makeAutoNo.do(자동번호 생성) → makeOrderNo.do(주문번호 발급) → connPro.do(결제) 순서로 호출한다.
+        """
+        try:
+            round_number = current_pension720_round()
+            key_code = self._prepare_el_session()
+
+            sel_no = self._pension720_make_auto_number(round_number, key_code)
+            logger.debug(f"pension720 auto number: {sel_no}")
+
+            order_no, order_date = self._pension720_make_order(round_number, sel_no, key_code)
+            logger.debug(f"pension720 order: {order_no} / {order_date}")
+
+            result = self._pension720_execute_buy(round_number, sel_no, order_no, order_date, key_code)
+            logger.debug(f"pension720 buy result: {result}")
+
+            if result.get("loginYn") != "Y" or result.get("result", {}).get("resultMsg", "").upper() != "SUCCESS":
+                reason = result.get("result", {}).get("resultMsg") or result.get("resultMsg") or "알 수 없는 오류"
+                raise RuntimeError(f"❗ 연금복권720+ 구매에 실패했습니다. (사유: {reason})")
+
+            self._lottery_endpoint.print_result_of_buy_pension720(round_number, sel_no)
+        except RuntimeError:
+            raise
+        except Exception:
+            raise RuntimeError("❗ 연금복권720+ 구매에 실패했습니다. (사유: 알 수 없는 오류)")
+
+    def _prepare_el_session(self):
+        resp = self._session.get(self._pension720_game_page, timeout=10)
+        logger.debug(f"pension720 game page status: {resp.status_code}")
+
+        for name in ("DHJSESSIONID", "JSESSIONID"):
+            for cookie in self._session.cookies:
+                if cookie.name == name:
+                    return cookie.value
+        raise RuntimeError("세션 쿠키(DHJSESSIONID)를 찾지 못했습니다.")
+
+    def _el_post(self, url, payload, key_code):
+        headers = {
+            "Origin": "https://el.dhlottery.co.kr",
+            "Referer": self._pension720_game_page,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "*/*",
+        }
+        data = {"q": quote(encrypt_el_payload(payload, key_code))}
+        resp = self._session.post(url, headers=headers, data=data, timeout=10)
+        body = json.loads(resp.text)
+        if "q" not in body:
+            return body  # 암호화되지 않은 직접 응답 (에러 코드 등)
+        return self._parse_el_json(decrypt_el_payload(body["q"], key_code))
+
+    def _parse_el_json(self, text):
+        try:
+            return json.loads(text)
+        except ValueError:
+            # 서버가 resultMsg 값을 따옴표 없이 내려주는 경우가 있어 보정
+            fixed = re.sub(r'("resultMsg":\s*)([^",}]*)([,}])', r'\1"\2"\3', text)
+            return json.loads(fixed)
+
+    def _pension720_make_auto_number(self, round_number, key_code):
+        payload = f"ROUND={round_number}&round={round_number}&LT_EPSD={round_number}&SEL_NO=&BUY_CNT=&AUTO_SEL_SET=SA&SEL_CLASS=&BUY_TYPE=A&ACCS_TYPE=01"
+        parsed = self._el_post(self._pension720_auto_no_url, payload, key_code)
+        sel_no = parsed.get("selLotNo")
+        if not sel_no:
+            raise RuntimeError(f"❗ 연금복권720+ 자동번호 생성에 실패했습니다. (응답: {parsed})")
+        return sel_no
+
+    def _pension720_make_order(self, round_number, sel_no, key_code):
+        count = self._PENSION720_TICKET_COUNT
+        payload = f"ROUND={round_number}&round={round_number}&LT_EPSD={round_number}&AUTO_SEL_SET=SA&SEL_CLASS=&SEL_NO={sel_no}&BUY_TYPE=M&BUY_CNT={count}"
+        parsed = self._el_post(self._pension720_order_no_url, payload, key_code)
+        if "orderNo" not in parsed:
+            raise RuntimeError(f"❗ 연금복권720+ 주문번호 발급에 실패했습니다. (응답: {parsed})")
+        return parsed["orderNo"], parsed["orderDate"]
+
+    def _pension720_execute_buy(self, round_number, sel_no, order_no, order_date, key_code):
+        count = self._PENSION720_TICKET_COUNT
+        buy_no = "%2C".join(f"{group}{sel_no}" for group in range(1, count + 1))
+        buy_set_type = "%2C".join(["SA"] * count)
+        buy_type_str = "%2C".join(["A"] * count) + "%2C"
+        total_cost = self._PENSION720_TICKET_PRICE * count
+
+        payload = (
+            f"ROUND={round_number}&FLAG=&BUY_KIND=01&BUY_NO={buy_no}&BUY_CNT={count}"
+            f"&BUY_SET_TYPE={buy_set_type}&BUY_TYPE={buy_type_str}"
+            f"&CS_TYPE=01&orderNo={order_no}&orderDate={order_date}&TRANSACTION_ID=&WIN_DATE="
+            f"&USER_ID={self._user_id}&PAY_TYPE=&resultErrorCode=&resultErrorMsg=&resultOrderNo="
+            "&WORKING_FLAG=true&NUM_CHANGE_TYPE=&auto_process=N&set_type=SA&classnum=&selnum="
+            "&buytype=A&num1=&num2=&num3=&num4=&num5=&num6=&DSEC=34&CLOSE_DATE="
+            f"&verifyYN=N&curdeposit=&curpay={total_cost}&DROUND={round_number}&DSEC=0&CLOSE_DATE=&verifyYN=N"
+            "&lotto720_radio_group=on"
+        )
+        return self._el_post(self._pension720_conn_pro_url, payload, key_code)
 
     def show_balance(self):
         try:

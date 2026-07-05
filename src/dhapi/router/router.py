@@ -7,8 +7,9 @@ from rich.table import Table
 from dhapi.config.logger import set_logger
 from dhapi.domain.deposit import Deposit
 from dhapi.domain.lotto645_ticket import Lotto645Ticket
+from dhapi.domain.pension720_round import current_pension720_round
 from dhapi.port.credentials_provider import CredentialsProvider
-from dhapi.router.dependency_factory import build_lottery_client, build_version_provider, build_lotto645_buy_confirmer
+from dhapi.router.dependency_factory import build_lottery_client, build_version_provider, build_lotto645_buy_confirmer, build_pension720_buy_confirmer
 
 app = typer.Typer(
     help="동행복권 비공식 API\n\n각 명령어에 대한 자세한 도움말은 'dhapi [명령어] -h'를 입력하세요.",
@@ -138,6 +139,28 @@ def buy_lotto645(
         raise typer.Exit()
 
     client.buy_lotto645(tickets)
+
+
+@app.command(help="""
+연금복권720+ 복권을 구매합니다.
+
+자동번호 1세트(1~5조 동일번호, 5장, 5,000원)를 구매합니다. 추첨은 매주 목요일에 진행됩니다.
+""")
+def buy_pension720(
+    always_yes: Annotated[bool, typer.Option("-y", "--yes", help="구매 전 확인 절차를 스킵합니다.")] = False,
+    profile: Annotated[str, typer.Option("-p", "--profile", help="프로필을 지정합니다", metavar="")] = "default",
+    _debug: Annotated[bool, typer.Option("-d", "--debug", help="debug 로그를 활성화합니다.", callback=logger_callback)] = False,
+):
+    user = CredentialsProvider(profile).get_user()
+
+    client = build_lottery_client(user)
+    confirmer = build_pension720_buy_confirmer()
+
+    ok = confirmer.confirm(current_pension720_round(), always_yes)
+    if not ok:
+        raise typer.Exit()
+
+    client.buy_pension720()
 
 
 @app.command(help="""
