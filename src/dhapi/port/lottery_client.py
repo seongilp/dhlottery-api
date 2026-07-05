@@ -267,15 +267,27 @@ class LotteryClient:
             result = self._pension720_execute_buy(round_number, sel_no, order_no, order_date, key_code)
             logger.debug(f"pension720 buy result: {result}")
 
-            if result.get("loginYn") != "Y" or result.get("result", {}).get("resultMsg", "").upper() != "SUCCESS":
-                reason = result.get("result", {}).get("resultMsg") or result.get("resultMsg") or "알 수 없는 오류"
-                raise RuntimeError(f"❗ 연금복권720+ 구매에 실패했습니다. (사유: {reason})")
+            if not self._is_pension720_success(result):
+                raise RuntimeError(f"❗ 연금복권720+ 구매에 실패했습니다. (사유: {self._pension720_failure_reason(result)})")
 
             self._lottery_endpoint.print_result_of_buy_pension720(round_number, sel_no)
         except RuntimeError:
             raise
         except Exception:
             raise RuntimeError("❗ 연금복권720+ 구매에 실패했습니다. (사유: 알 수 없는 오류)")
+
+    @staticmethod
+    def _is_pension720_success(response):
+        # 현행 API: resultCode "100"이 성공 (resultMessage는 성공 시 None일 수 있음)
+        if str(response.get("resultCode", "")) == "100":
+            return True
+        # 구형 API: loginYn "Y" + result.resultMsg "SUCCESS"
+        result = response.get("result", {})
+        return response.get("loginYn") == "Y" and str(result.get("resultMsg", "")).upper() == "SUCCESS"
+
+    @staticmethod
+    def _pension720_failure_reason(response):
+        return response.get("resultMessage") or response.get("result", {}).get("resultMsg") or response
 
     def _prepare_el_session(self):
         resp = self._session.get(self._pension720_game_page, timeout=10)
