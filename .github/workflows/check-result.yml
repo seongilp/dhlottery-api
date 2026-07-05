@@ -1,7 +1,8 @@
 name: CheckLottoResult weekly
 on:
   schedule:
-    - cron: 7 13 * * 6 # every Saturday on 22:07 PM (KST) — 추첨(20:35 KST) 후 결과 확인
+    - cron: 7 13 * * 6 # 토요일 22:07 KST — 로또6/45 추첨(20:35 KST) 후 결과 확인
+    - cron: 7 11 * * 4 # 목요일 20:07 KST — 연금복권720+ 추첨(19:05 KST) 후 결과 확인
   workflow_dispatch:
 jobs:
   CheckLottoResult:

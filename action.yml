@@ -33,6 +33,10 @@ inputs:
     description: '구매 후 예치금(구매가능금액)이 이 값 이하면 텔레그램으로 충전 경고 (원, 빈 값이면 비활성화)'
     required: false
     default: '10000'
+  recharge_amount:
+    description: '충전 경고 시 자동 발급할 가상계좌의 입금 예정 금액 (원, 동행복권이 허용하는 금액 단위만 가능)'
+    required: false
+    default: '50000'
   telegram_bot_token:
     description: '텔레그램 봇 토큰 (구매 결과 알림용, 선택)'
     required: false
@@ -60,6 +64,7 @@ runs:
         PASSWORD: ${{ inputs.password }}
         BUY_PENSION720: ${{ inputs.buy_pension720 }}
         BALANCE_WARN_THRESHOLD: ${{ inputs.balance_warn_threshold }}
+        RECHARGE_AMOUNT: ${{ inputs.recharge_amount }}
         TG_TOKEN: ${{ inputs.telegram_bot_token }}
         TG_CHAT_ID: ${{ inputs.telegram_chat_id }}
       run: |
@@ -143,7 +148,17 @@ runs:
             avail_fmt=$(python3 -c "import sys; print(format(int(sys.argv[1]), ','))" "$avail")
             message="${message}"$'\n\n'"💰 잔여 예치금: ${avail_fmt}원"
             if [ -n "$BALANCE_WARN_THRESHOLD" ] && [ "$avail" -le "$BALANCE_WARN_THRESHOLD" ]; then
-              message="${message}"$'\n'"⚠️ 예치금이 부족합니다! 충전이 필요해요. (매주 구매에 10,000원 필요)"$'\n'"👉 dhapi assign-virtual-account 로 가상계좌를 발급받아 입금하세요."
+              message="${message}"$'\n'"⚠️ 예치금이 부족합니다! 충전이 필요해요. (매주 구매에 10,000원 필요)"
+
+              # 가상계좌를 자동 발급해서 계좌번호를 알림에 포함
+              recharge_fmt=$(python3 -c "import sys; print(format(int(sys.argv[1]), ','))" "$RECHARGE_AMOUNT")
+              va_output=$(dhapi assign-virtual-account "$RECHARGE_AMOUNT" 2>&1) || va_output=""
+              account=$(printf '%s' "$va_output" | python3 -c "import re, sys; m = re.search(r'\[([^]]+)\]\s*([0-9-]+)', sys.stdin.read()); print(f'[{m.group(1)}] {m.group(2)}' if m else '')")
+              if [ -n "$account" ]; then
+                message="${message}"$'\n'"🏦 전용 가상계좌: ${account}"$'\n'"정확히 ${recharge_fmt}원을 입금하면 충전됩니다. (입금 전 계좌주 이름 확인!)"
+              else
+                message="${message}"$'\n'"👉 가상계좌 자동 발급에 실패했습니다. dhapi assign-virtual-account 로 직접 발급해주세요."
+              fi
             fi
           else
             echo "::warning::예치금 조회에 실패했습니다."
