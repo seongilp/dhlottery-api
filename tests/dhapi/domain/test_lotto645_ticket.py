@@ -136,3 +136,21 @@ def test_mode_kor_formatted_return_수동_for_manual():
 
     assert len(tickets) == 1
     assert tickets[0].mode_kor == "수동"
+
+
+def test_create_tickets_excluding():
+    excluded = [4, 13, 14, 18, 31, 38, 15]
+    tickets = Lotto645Ticket.create_tickets_excluding(excluded, count=5)
+
+    assert len(tickets) == 5
+    for t in tickets:
+        assert t.mode == Lotto645Mode.MANUAL
+        assert len(t.numbers) == 6
+        assert len(set(t.numbers)) == 6
+        assert not set(t.numbers) & set(excluded)
+        assert all(1 <= n <= 45 for n in t.numbers)
+
+
+def test_create_tickets_excluding_too_many():
+    with pytest.raises(ValueError):
+        Lotto645Ticket.create_tickets_excluding(range(1, 41), count=1)

@@ -29,6 +29,10 @@ inputs:
     description: '연금복권720+ 자동 1세트(1~5조 동일번호 5장, 5,000원)도 함께 구매 (true/false)'
     required: false
     default: 'false'
+  lotto_exclude_last_draw:
+    description: '로또 구매 시 직전 회차 당첨번호(보너스 포함)를 제외한 랜덤 번호로 수동 구매 (true/false)'
+    required: false
+    default: 'false'
   balance_warn_threshold:
     description: '구매 후 예치금(구매가능금액)이 이 값 이하면 텔레그램으로 충전 경고 (원, 빈 값이면 비활성화)'
     required: false
@@ -63,6 +67,7 @@ runs:
         USERNAME: ${{ inputs.username }}
         PASSWORD: ${{ inputs.password }}
         BUY_PENSION720: ${{ inputs.buy_pension720 }}
+        LOTTO_EXCLUDE_LAST_DRAW: ${{ inputs.lotto_exclude_last_draw }}
         BALANCE_WARN_THRESHOLD: ${{ inputs.balance_warn_threshold }}
         RECHARGE_AMOUNT: ${{ inputs.recharge_amount }}
         TG_TOKEN: ${{ inputs.telegram_bot_token }}
@@ -72,8 +77,14 @@ runs:
         # credentials는 TOML 형식이므로 값을 따옴표로 감싸야 함
         printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
 
+        lotto_args="-y"
+        if [ "$LOTTO_EXCLUDE_LAST_DRAW" = "true" ]; then
+          lotto_args="-y --exclude-last-draw"
+        fi
+
         set +e
-        lotto_output=$(dhapi buy-lotto645 -y 2>&1)
+        # shellcheck disable=SC2086
+        lotto_output=$(dhapi buy-lotto645 $lotto_args 2>&1)
         lotto_code=$?
         set -e
         echo "$lotto_output"

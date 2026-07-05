@@ -1,5 +1,6 @@
+import random
 from enum import Enum
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 
 class Lotto645Mode(str, Enum):
@@ -52,3 +53,16 @@ class Lotto645Ticket:
     @staticmethod
     def create_tickets(numbers_list: List[str]):
         return [Lotto645Ticket(numbers) for numbers in numbers_list]
+
+    @staticmethod
+    def create_tickets_excluding(excluded_numbers: Iterable[int], count: int = 5):
+        """제외할 번호들을 뺀 풀에서 랜덤 6개씩 뽑아 수동모드 티켓을 생성
+
+        확률적 이득은 없지만(매 회차 독립 시행) 직전 회차 당첨번호를 피하고 싶을 때 사용한다.
+        """
+        pool = [n for n in range(1, 46) if n not in set(excluded_numbers)]
+        if len(pool) < 6:
+            raise ValueError(f"제외 후 남은 번호가 6개 미만입니다 (남은 개수: {len(pool)}).")
+
+        rng = random.SystemRandom()
+        return [Lotto645Ticket(",".join(map(str, rng.sample(pool, 6)))) for _ in range(count)]

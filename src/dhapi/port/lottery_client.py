@@ -33,6 +33,7 @@ class LotteryClient:
     _assign_virtual_account_1 = "https://www.dhlottery.co.kr/mypage/kbankInit.do"
     _assign_virtual_account_2 = "https://www.dhlottery.co.kr/mypage/kbankProcess.do"
     _lotto_buy_list_url = "https://www.dhlottery.co.kr/mypage/selectMyLotteryledger.do"
+    _lotto645_winning_info_url = "https://www.dhlottery.co.kr/lt645/selectPstLt645Info.do"
     _pension720_game_page = "https://el.dhlottery.co.kr/game/pension720/game.jsp"
     _pension720_auto_no_url = "https://el.dhlottery.co.kr/makeAutoNo.do"
     _pension720_order_no_url = "https://el.dhlottery.co.kr/makeOrderNo.do"
@@ -247,6 +248,25 @@ class LotteryClient:
             }
             slots.append(slot)
         return slots
+
+    def get_previous_lotto645_winning_numbers(self):
+        """직전 회차 로또6/45 당첨번호 조회 (본번호 6개 + 보너스 1개)
+
+        Returns:
+            tuple: (회차 번호, 당첨번호 7개 리스트)
+        """
+        previous_round = self._get_round() - 1
+        try:
+            headers = {"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}
+            resp = self._session.get(self._lotto645_winning_info_url, params={"srchLtEpsd": previous_round}, headers=headers, timeout=10)
+            items = resp.json().get("data", {}).get("list", [])
+            info = next((item for item in items if item.get("ltEpsd") == previous_round), None)
+            if info is None:
+                raise ValueError(f"응답에 {previous_round}회 정보가 없습니다.")
+            numbers = [info[f"tm{n}WnNo"] for n in range(1, 7)] + [info["bnsWnNo"]]
+            return previous_round, numbers
+        except Exception:
+            raise RuntimeError(f"❗ {previous_round}회 당첨번호를 조회하지 못했습니다.")
 
     def buy_pension720(self):
         """연금복권720+ 자동번호 1세트(1~5조 동일번호, 5장) 구매
