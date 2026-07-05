@@ -59,16 +59,45 @@ runs:
         set -e
         echo "$output"
 
+        # rich 테이블은 모바일 텔레그램에서 깨져 보이므로 구매 결과를 간결한 텍스트로 재구성
+        printf '%s' "$output" > /tmp/dhapi_out.txt
+        cat > /tmp/fmt_buy.py <<'PYEOF'
+        import re
+        import sys
+
+        text = open("/tmp/dhapi_out.txt", encoding="utf-8").read()
+        idx = text.find("복권을 구매했습니다")
+        if idx < 0:
+            sys.exit(1)
+        rows = []
+        for m in re.finditer(r"│\s*([A-E])\s*│\s*(\S+)\s*│([^\n]*)", text[idx:]):
+            nums = re.findall(r"\d+", m.group(3))
+            if len(nums) == 6:
+                rows.append(f"{m.group(1)} {m.group(2)} · {' '.join(nums)}")
+        if not rows:
+            sys.exit(1)
+        print("\n".join(rows))
+        PYEOF
+
         # 텔레그램 알림 (토큰/chat_id가 설정된 경우에만)
         if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
+          pretty=""
           if [ "$code" -eq 0 ]; then
-            header="✅ 로또6/45 구매 완료"
-          else
-            header="❌ 로또6/45 구매 실패"
+            pretty=$(python3 /tmp/fmt_buy.py 2>/dev/null) || pretty=""
           fi
-          # HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단
-          escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
-          message="${header}"$'\n'"<pre>${escaped}</pre>"
+          if [ "$code" -eq 0 ] && [ -n "$pretty" ]; then
+            message="✅ 로또6/45 구매 완료"$'\n\n'"${pretty}"
+          else
+            # 구매 실패 또는 파싱 실패 시 원본 출력을 <pre>로 전송
+            # (HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단)
+            escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
+            if [ "$code" -eq 0 ]; then
+              header="✅ 로또6/45 구매 완료"
+            else
+              header="❌ 로또6/45 구매 실패"
+            fi
+            message="${header}"$'\n'"<pre>${escaped}</pre>"
+          fi
           curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT_ID}" \
             --data-urlencode "parse_mode=HTML" \

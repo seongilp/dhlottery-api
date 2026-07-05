@@ -24,19 +24,74 @@ jobs:
           printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
 
           set +e
-          output=$(dhapi show-buy-list 2>&1)
+          output=$(dhapi show-buy-list -f json 2>&1)
           code=$?
           set -e
           echo "$output"
+          printf '%s' "$output" > /tmp/dhapi_out.txt
 
+          # rich 테이블은 모바일 텔레그램에서 깨져 보이므로 JSON을 간결한 텍스트로 재구성
+          cat > /tmp/fmt_result.py <<'PYEOF'
+          import json
+          import sys
+
+          raw = open("/tmp/dhapi_out.txt", encoding="utf-8").read()
+          start = raw.find("[")
+          if start < 0:
+              sys.exit(1)
+          try:
+              items = json.loads(raw[start:])
+          except ValueError:
+              sys.exit(1)
+          if not items:
+              print("구매 내역이 없습니다.")
+              sys.exit(0)
+
+          def icon(res):
+              return {"당첨": "🏆", "미추첨": "⏳", "낙첨": "😢"}.get(res, "▪️")
+
+          groups = []
+          for it in items:
+              key = None
+              if "numbers" not in it:
+                  key = (it.get("복권명"), it.get("회차"), it.get("당첨결과"), it.get("당첨금"))
+              if key is not None and groups and groups[-1][0] == key:
+                  groups[-1] = (key, groups[-1][1], groups[-1][2] + 1)
+              else:
+                  groups.append((key, it, 1))
+
+          lines = []
+          for key, it, cnt in groups:
+              res = it.get("당첨결과") or "-"
+              head = f"{icon(res)} {it.get('복권명', '')} {it.get('회차', '')}회 — {res}"
+              amt = it.get("당첨금", "-")
+              if amt and amt != "-":
+                  head += f" 💰{amt}"
+              if cnt > 1:
+                  head += f" ×{cnt}"
+              draw = it.get("추첨일", "")
+              if draw:
+                  head += f" (추첨 {draw})"
+              lines.append(head)
+              for g in it.get("numbers", []):
+                  nums = " ".join(str(n) for n in g.get("numbers", []))
+                  lines.append(f"    {g.get('slot', '')} {g.get('mode', '')} · {nums}")
+              lines.append("")
+          print("\n".join(lines).strip())
+          PYEOF
+
+          pretty=""
           if [ "$code" -eq 0 ]; then
-            header="🎰 로또 구매/당첨 내역 (최근 14일)"
-          else
-            header="❌ 당첨 결과 조회 실패"
+            pretty=$(python3 /tmp/fmt_result.py 2>/dev/null | head -c 3500) || pretty=""
           fi
-          # HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단
-          escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
-          message="${header}"$'\n'"<pre>${escaped}</pre>"
+
+          if [ "$code" -eq 0 ] && [ -n "$pretty" ]; then
+            message="🎰 로또 당첨 결과 (최근 14일)"$'\n\n'"${pretty}"
+          else
+            # 조회 실패 또는 파싱 실패 시 원본 출력을 <pre>로 전송
+            escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
+            message="❌ 당첨 결과 조회 실패"$'\n'"<pre>${escaped}</pre>"
+          fi
           curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT_ID}" \
             --data-urlencode "parse_mode=HTML" \
