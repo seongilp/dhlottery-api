@@ -1,0 +1,45 @@
+name: CheckLottoResult weekly
+on:
+  schedule:
+    - cron: 7 13 * * 6 # every Saturday on 22:07 PM (KST) — 추첨(20:35 KST) 후 결과 확인
+  workflow_dispatch:
+jobs:
+  CheckLottoResult:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dhapi
+        run: pip install dhapi
+      - name: Check result and notify
+        env:
+          USERNAME: ${{ secrets.USER_ID }}
+          PASSWORD: ${{ secrets.USER_PW }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          mkdir -p ~/.dhapi
+          # credentials는 TOML 형식이므로 값을 따옴표로 감싸야 함
+          printf '[default]\nusername = "%s"\npassword = "%s"\n' "$USERNAME" "$PASSWORD" > ~/.dhapi/credentials
+
+          set +e
+          output=$(dhapi show-buy-list 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+
+          if [ "$code" -eq 0 ]; then
+            header="🎰 로또 구매/당첨 내역 (최근 14일)"
+          else
+            header="❌ 당첨 결과 조회 실패"
+          fi
+          # HTML parse_mode용 이스케이프 + 텔레그램 메시지 길이 제한(4096) 대비 절단
+          escaped=$(printf '%s' "$output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 3500)
+          message="${header}"$'\n'"<pre>${escaped}</pre>"
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${message}" || echo "::warning::텔레그램 알림 전송에 실패했습니다."
+
+          exit $code
