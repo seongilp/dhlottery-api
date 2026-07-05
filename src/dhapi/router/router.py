@@ -59,12 +59,13 @@ def assign_virtual_account(
 """)
 def show_balance(
     profile: Annotated[str, typer.Option("-p", "--profile", help="프로필을 지정합니다", metavar="")] = "default",
+    output_format: Annotated[str, typer.Option("-f", "--format", help="출력 형식을 지정합니다 (table, json).")] = "table",
     _debug: Annotated[bool, typer.Option("-d", "--debug", help="debug 로그를 활성화합니다.", callback=logger_callback)] = False,
 ):
     user = CredentialsProvider(profile).get_user()
 
     client = build_lottery_client(user)
-    client.show_balance()
+    client.show_balance(output_format)
 
 
 @app.command(help="""

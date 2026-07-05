@@ -29,6 +29,10 @@ inputs:
     description: '연금복권720+ 자동 1세트(1~5조 동일번호 5장, 5,000원)도 함께 구매 (true/false)'
     required: false
     default: 'false'
+  balance_warn_threshold:
+    description: '구매 후 예치금(구매가능금액)이 이 값 이하면 텔레그램으로 충전 경고 (원, 빈 값이면 비활성화)'
+    required: false
+    default: '10000'
   telegram_bot_token:
     description: '텔레그램 봇 토큰 (구매 결과 알림용, 선택)'
     required: false
@@ -55,6 +59,7 @@ runs:
         USERNAME: ${{ inputs.username }}
         PASSWORD: ${{ inputs.password }}
         BUY_PENSION720: ${{ inputs.buy_pension720 }}
+        BALANCE_WARN_THRESHOLD: ${{ inputs.balance_warn_threshold }}
         TG_TOKEN: ${{ inputs.telegram_bot_token }}
         TG_CHAT_ID: ${{ inputs.telegram_chat_id }}
       run: |
@@ -130,6 +135,18 @@ runs:
               if [ "$pension_code" -eq 0 ]; then header_p="✅ 연금복권720+ 구매 완료"; else header_p="❌ 연금복권720+ 구매 실패"; fi
               message="${message}"$'\n\n'"${header_p}"$'\n'"<pre>${escaped_p}</pre>"
             fi
+          fi
+
+          # 구매 후 잔여 예치금 조회 및 부족 경고
+          avail=$(dhapi show-balance -f json 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['구매가능금액'])" 2>/dev/null) || avail=""
+          if [ -n "$avail" ]; then
+            avail_fmt=$(python3 -c "import sys; print(format(int(sys.argv[1]), ','))" "$avail")
+            message="${message}"$'\n\n'"💰 잔여 예치금: ${avail_fmt}원"
+            if [ -n "$BALANCE_WARN_THRESHOLD" ] && [ "$avail" -le "$BALANCE_WARN_THRESHOLD" ]; then
+              message="${message}"$'\n'"⚠️ 예치금이 부족합니다! 충전이 필요해요. (매주 구매에 10,000원 필요)"$'\n'"👉 dhapi assign-virtual-account 로 가상계좌를 발급받아 입금하세요."
+            fi
+          else
+            echo "::warning::예치금 조회에 실패했습니다."
           fi
 
           curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \

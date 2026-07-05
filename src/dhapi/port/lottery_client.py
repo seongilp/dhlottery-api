@@ -345,7 +345,7 @@ class LotteryClient:
         )
         return self._el_post(self._pension720_conn_pro_url, payload, key_code)
 
-    def show_balance(self):
+    def show_balance(self, output_format="table"):
         try:
             headers = {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -385,6 +385,7 @@ class LotteryClient:
                 출금신청중금액=출금신청중금액,
                 구매불가능금액=구매불가능금액,
                 최근1달누적구매금액=최근1달누적구매금액,
+                output_format=output_format,
             )
 
         except Exception:
