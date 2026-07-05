@@ -13,7 +13,6 @@ jobs:
           username: ${{ secrets.USER_ID }}
           password: ${{ secrets.USER_PW }}
           buy_pension720: 'true'
-          lotto_exclude_last_draw: 'true'
           recharge_amount: '10000'
           telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
