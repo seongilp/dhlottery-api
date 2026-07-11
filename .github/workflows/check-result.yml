@@ -1,24 +1,52 @@
 name: CheckLottoResult weekly
 on:
   schedule:
+    # GitHub cron은 지연이 잦아(2시간 이상 관측됨) 30분 간격 다중 슬롯으로 등록.
+    # 같은 날(UTC) 이미 성공한 실행이 있으면 아래 dedup 단계에서 스킵된다.
     - cron: 7 13 * * 6 # 토요일 22:07 KST — 로또6/45 추첨(20:35 KST) 후 결과 확인
+    - cron: 37 13 * * 6 # 토요일 22:37 KST
+    - cron: 7 14 * * 6 # 토요일 23:07 KST (마지막 슬롯 — 정산 미완료여도 발송)
     - cron: 7 11 * * 4 # 목요일 20:07 KST — 연금복권720+ 추첨(19:05 KST) 후 결과 확인
+    - cron: 37 11 * * 4 # 목요일 20:37 KST
+    - cron: 7 12 * * 4 # 목요일 21:07 KST (마지막 슬롯 — 정산 미완료여도 발송)
   workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
 jobs:
   CheckLottoResult:
     runs-on: ubuntu-latest
     steps:
+      - name: Skip if already notified today
+        id: dedup
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today=$(date -u +%Y-%m-%d)
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/check-result.yml/runs?status=success&created=${today}..${today}&per_page=100" --jq '.workflow_runs | length')
+          if [ "$n" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "오늘 이미 성공한 알림 실행이 ${n}건 있어 스킵합니다."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v5
+        if: steps.dedup.outputs.skip != 'true'
         with:
           python-version: '3.12'
       - name: Install dhapi
+        if: steps.dedup.outputs.skip != 'true'
         run: pip install dhapi
       - name: Check result and notify
+        if: steps.dedup.outputs.skip != 'true'
         env:
           USERNAME: ${{ secrets.USER_ID }}
           PASSWORD: ${{ secrets.USER_PW }}
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          CRON_SLOT: ${{ github.event.schedule }}
         run: |
           mkdir -p ~/.dhapi
           # credentials는 TOML 형식이므로 값을 따옴표로 감싸야 함
@@ -30,6 +58,36 @@ jobs:
           set -e
           echo "$output"
           printf '%s' "$output" > /tmp/dhapi_out.txt
+
+          # 오늘 추첨분이 아직 정산 전("추첨중"/"미추첨")이면 이번 슬롯은 실패로 끝내 다음 슬롯이 재시도하게 한다.
+          # 마지막 슬롯(토 23:07 / 목 21:07 KST)과 수동 실행은 정산 여부와 무관하게 발송한다.
+          cat > /tmp/check_pending.py <<'PYEOF'
+          import json
+          import sys
+
+          raw = open("/tmp/dhapi_out.txt", encoding="utf-8").read()
+          start = raw.find("[")
+          if start < 0:
+              print("error")
+              sys.exit(0)
+          try:
+              items = json.loads(raw[start:])
+          except ValueError:
+              print("error")
+              sys.exit(0)
+          today = sys.argv[1]
+          pending = any(str(it.get("추첨일", "")).startswith(today) and it.get("당첨결과") in ("추첨중", "미추첨") for it in items)
+          print("pending" if pending else "settled")
+          PYEOF
+
+          if [ "$code" -eq 0 ] && [ "$EVENT_NAME" = "schedule" ] && [ "$CRON_SLOT" != "7 14 * * 6" ] && [ "$CRON_SLOT" != "7 12 * * 4" ]; then
+            today_kst=$(TZ=Asia/Seoul date +%Y-%m-%d)
+            state=$(python3 /tmp/check_pending.py "$today_kst")
+            if [ "$state" = "pending" ]; then
+              echo "오늘(${today_kst}) 추첨 결과가 아직 정산되지 않았습니다. 다음 슬롯에서 재시도합니다."
+              exit 1
+            fi
+          fi
 
           # rich 테이블은 모바일 텔레그램에서 깨져 보이므로 JSON을 간결한 텍스트로 재구성
           cat > /tmp/fmt_result.py <<'PYEOF'
