@@ -31,13 +31,18 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/checkout@v4
+        if: steps.dedup.outputs.skip != 'true'
       - uses: actions/setup-python@v5
         if: steps.dedup.outputs.skip != 'true'
         with:
           python-version: '3.12'
       - name: Install dhapi
         if: steps.dedup.outputs.skip != 'true'
-        run: pip install dhapi
+        env:
+          # PyPI 배포판이 아닌 이 레포의 소스를 설치해 포크의 수정사항(비밀번호 변경 유예 등)을 반영
+          SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.0'
+        run: pip install .
       - name: Check result and notify
         if: steps.dedup.outputs.skip != 'true'
         env:
