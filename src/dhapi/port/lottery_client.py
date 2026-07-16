@@ -34,6 +34,9 @@ class LotteryClient:
     _assign_virtual_account_2 = "https://www.dhlottery.co.kr/mypage/kbankProcess.do"
     _lotto_buy_list_url = "https://www.dhlottery.co.kr/mypage/selectMyLotteryledger.do"
     _lotto645_winning_info_url = "https://www.dhlottery.co.kr/lt645/selectPstLt645Info.do"
+    _expiry_password_notice_page = "/mbrsrvc/ExpryPswdNoti"
+    _defer_password_change_url = "/mbrsrvc/nxtChngProc.do"
+    _login_success_url = "/login/loginSuccess.do?returnUrl=/main"
     _pension720_game_page = "https://el.dhlottery.co.kr/game/pension720/game.jsp"
     _pension720_auto_no_url = "https://el.dhlottery.co.kr/makeAutoNo.do"
     _pension720_order_no_url = "https://el.dhlottery.co.kr/makeOrderNo.do"
@@ -108,6 +111,9 @@ class LotteryClient:
         resp = self._session.post(f"{self._base_url}{self._login_url}", headers=login_headers, data=login_data, timeout=10, allow_redirects=True)
         logger.debug(f"Login response status: {resp.status_code}, URL: {resp.url}")
 
+        if resp.status_code == 200 and self._expiry_password_notice_page in resp.url:
+            resp = self._defer_password_change()
+
         if resp.status_code != 200 or "loginSuccess" not in resp.url:
             soup = BeautifulSoup(resp.text, "html5lib")
             error_button = soup.find("a", {"class": "btn_common"})
@@ -129,6 +135,28 @@ class LotteryClient:
 
         if not any(c.name == "JSESSIONID" for c in self._session.cookies):
             logger.warning("JSESSIONID was not acquired from ol.dhlottery.co.kr")
+
+    def _defer_password_change(self):
+        """비밀번호 변경 안내(90일 경과 시 ExpryPswdNoti로 강제 이동)를 '다음에 변경'으로 유예하고 로그인을 재개한다 (30일 유예)"""
+        logger.debug("비밀번호 변경 안내 페이지가 감지되어 변경 유예를 시도합니다.")
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": self._base_url,
+            "Referer": f"{self._base_url}{self._expiry_password_notice_page}",
+        }
+        resp = self._session.post(f"{self._base_url}{self._defer_password_change_url}", headers=headers, json={}, timeout=10)
+        try:
+            data = resp.json().get("data") or {}
+            result_cnt = int(data.get("resultCnt", 0))
+        except (ValueError, TypeError):
+            result_cnt = 0
+        if result_cnt <= 0:
+            logger.debug(f"비밀번호 변경 유예 실패 응답: {resp.text[:300]}")
+            raise RuntimeError("❗ 비밀번호 변경 안내(90일 경과)로 로그인이 중단되었습니다. 동행복권 사이트에 직접 로그인해 비밀번호를 변경하거나 '다음에 변경하기'를 눌러주세요.")
+        logger.debug("비밀번호 변경 유예 성공")
+        return self._session.get(f"{self._base_url}{self._login_success_url}", timeout=10, allow_redirects=True)
 
     def _get_round(self):
         """
