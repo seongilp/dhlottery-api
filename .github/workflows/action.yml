@@ -1,14 +1,37 @@
 name: BuyLotto645 weekly
 on:
   schedule:
-    - cron: 23 0 * * 0 # every Sunday on 09:23 AM (KST) — 정각(00:00 UTC)은 GitHub 혼잡으로 지연/스킵이 잦아 회피
+    # GitHub cron은 지연/스킵이 잦아(2026-07-19 완전 미실행 관측) 30분 간격 다중 슬롯으로 등록.
+    # 같은 날(UTC) 이미 성공한 실행이 있으면 아래 dedup 단계에서 스킵되어 중복 구매를 방지한다.
+    - cron: 23 0 * * 0 # 일요일 09:23 KST
+    - cron: 53 0 * * 0 # 일요일 09:53 KST
+    - cron: 23 1 * * 0 # 일요일 10:23 KST
   workflow_dispatch:      # 테스트를 위해 workflow가 dispatch 되는 경우 실행이 가능하도록 추가
+permissions:
+  actions: read
+  contents: read
 jobs:
   BuyLotto645:
     runs-on: ubuntu-latest
     steps:
+      - name: Skip if already bought today
+        id: dedup
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today=$(date -u +%Y-%m-%d)
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/action.yml/runs?status=success&created=${today}..${today}&per_page=100" --jq '.workflow_runs | length')
+          if [ "$n" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "오늘 이미 성공한 구매 실행이 ${n}건 있어 스킵합니다."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
-      - uses: ./ # 루트의 action.yml (composite action) 사용
+        if: steps.dedup.outputs.skip != 'true'
+      - if: steps.dedup.outputs.skip != 'true'
+        uses: ./ # 루트의 action.yml (composite action) 사용
         with:
           username: ${{ secrets.USER_ID }}
           password: ${{ secrets.USER_PW }}
