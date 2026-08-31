@@ -82,22 +82,68 @@ runs:
           lotto_args="-y --exclude-last-draw"
         fi
 
-        set +e
-        # shellcheck disable=SC2086
-        lotto_output=$(dhapi buy-lotto645 $lotto_args 2>&1)
-        lotto_code=$?
-        set -e
-        echo "$lotto_output"
+        # 이미 구매해 둔(추첨 대기 중인) 복권 종류를 조회한다.
+        # 한쪽만 성공하고 job이 실패로 끝난 경우, 다음 슬롯이 이미 산 복권을 다시 사려다
+        # "주간 구매한도 초과"로 실패하는 것을 막기 위함이다.
+        cat > /tmp/pending.py <<'PYEOF'
+        """이미 구매해 추첨을 기다리는 복권 종류를 한 줄에 하나씩 출력한다."""
+        import datetime
+        import json
+        import subprocess
+        import sys
+
+        NAMES = {"로또6/45": "lotto", "연금복권720+": "pension"}
+
+        try:
+            proc = subprocess.run(["dhapi", "show-buy-list", "-f", "json"], capture_output=True, text=True, timeout=180, check=True)
+            rows = json.loads(proc.stdout)
+        except Exception as e:  # 조회 실패 시 아무것도 건너뛰지 않는다 (사이트의 한도 검사에 맡김)
+            print(f"::warning::구매 내역 조회에 실패해 중복 구매 검사를 건너뜁니다. ({e})", file=sys.stderr)
+            sys.exit(0)
+
+        today = datetime.date.today().isoformat()
+        pending = set()
+        for row in rows:
+            key = NAMES.get(row.get("복권명"))
+            if key and row.get("당첨결과") == "미추첨" and row.get("추첨일", "") >= today:
+                pending.add(key)
+        for key in sorted(pending):
+            print(key)
+        PYEOF
+        pending=$(python3 /tmp/pending.py) || pending=""
+        echo "이미 구매되어 추첨 대기 중: ${pending:-없음}"
+
+        lotto_skipped=false
+        if printf '%s\n' "$pending" | grep -qx lotto; then
+          lotto_skipped=true
+          lotto_code=0
+          lotto_output="⏭️ 이번 회차 로또6/45는 이미 구매되어 있어 건너뜁니다."
+          echo "$lotto_output"
+        else
+          set +e
+          # shellcheck disable=SC2086
+          lotto_output=$(dhapi buy-lotto645 $lotto_args 2>&1)
+          lotto_code=$?
+          set -e
+          echo "$lotto_output"
+        fi
         printf '%s' "$lotto_output" > /tmp/dhapi_lotto.txt
 
         pension_code=0
         pension_output=""
+        pension_skipped=false
         if [ "$BUY_PENSION720" = "true" ]; then
-          set +e
-          pension_output=$(dhapi buy-pension720 -y 2>&1)
-          pension_code=$?
-          set -e
-          echo "$pension_output"
+          if printf '%s\n' "$pending" | grep -qx pension; then
+            pension_skipped=true
+            pension_output="⏭️ 이번 회차 연금복권720+는 이미 구매되어 있어 건너뜁니다."
+            echo "$pension_output"
+          else
+            set +e
+            pension_output=$(dhapi buy-pension720 -y 2>&1)
+            pension_code=$?
+            set -e
+            echo "$pension_output"
+          fi
           printf '%s' "$pension_output" > /tmp/dhapi_pension.txt
         fi
 
@@ -134,7 +180,9 @@ runs:
 
         # 텔레그램 알림 (토큰/chat_id가 설정된 경우에만)
         if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
-          if [ "$lotto_code" -eq 0 ] && pretty=$(python3 /tmp/fmt_buy.py /tmp/dhapi_lotto.txt 2>/dev/null); then
+          if [ "$lotto_skipped" = "true" ]; then
+            message="⏭️ 로또6/45 이미 구매됨 (건너뜀)"
+          elif [ "$lotto_code" -eq 0 ] && pretty=$(python3 /tmp/fmt_buy.py /tmp/dhapi_lotto.txt 2>/dev/null); then
             message="✅ 로또6/45 구매 완료"$'\n'"${pretty}"
           else
             # 구매 실패 또는 파싱 실패 시 원본 출력을 <pre>로 전송
@@ -144,7 +192,9 @@ runs:
           fi
 
           if [ "$BUY_PENSION720" = "true" ]; then
-            if [ "$pension_code" -eq 0 ] && pretty_p=$(python3 /tmp/fmt_pension.py /tmp/dhapi_pension.txt 2>/dev/null); then
+            if [ "$pension_skipped" = "true" ]; then
+              message="${message}"$'\n\n'"⏭️ 연금복권720+ 이미 구매됨 (건너뜀)"
+            elif [ "$pension_code" -eq 0 ] && pretty_p=$(python3 /tmp/fmt_pension.py /tmp/dhapi_pension.txt 2>/dev/null); then
               message="${message}"$'\n\n'"✅ 연금복권720+ 구매 완료"$'\n'"${pretty_p}"
             else
               escaped_p=$(printf '%s' "$pension_output" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | head -c 1700)
